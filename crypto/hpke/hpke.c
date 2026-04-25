@@ -21,6 +21,13 @@
 #include "internal/nelem.h"
 #include "internal/common.h"
 
+static double now_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000.0 + ts.tv_nsec / 1000000.0;
+}
+
 /* default buffer size for keys and internal buffers we use */
 #define OSSL_HPKE_MAXSIZE 512
 
@@ -1110,7 +1117,11 @@ int OSSL_HPKE_encap(OSSL_HPKE_CTX *ctx,
      * only needs to be used once here so doesn't need to
      * be stored
      */
+    // schedule
+    double s = now_ms();
     erv = hpke_do_middle(ctx, info, infolen);
+    double e = now_ms();
+    printf("openssl,schedule,,%.5f\n", e - s);
     return erv;
 }
 

@@ -38,6 +38,13 @@
 #include "prov/eckem.h"
 #include "providers/implementations/kem/ecx_kem.inc"
 
+static double now_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000.0 + ts.tv_nsec / 1000000.0;
+}
+
 #define MAX_ECX_KEYLEN X448_KEYLEN
 
 /* KEM identifiers from Section 7.1 "Table 2 KEM IDs" */
@@ -302,13 +309,19 @@ static int dhkem_extract_and_expand(EVP_KDF_CTX *kctx,
     suiteid[0] = (kemid >> 8) & 0xff;
     suiteid[1] = kemid & 0xff;
 
+    double s = now_ms();
     ret = ossl_hpke_labeled_extract(kctx, prk, prklen,
-              NULL, 0, LABEL_KEM, suiteid, sizeof(suiteid),
-              OSSL_DHKEM_LABEL_EAE_PRK, dhkm, dhkmlen)
-        && ossl_hpke_labeled_expand(kctx, okm, okmlen, prk, prklen,
-            LABEL_KEM, suiteid, sizeof(suiteid),
-            OSSL_DHKEM_LABEL_SHARED_SECRET,
-            kemctx, kemctxlen);
+        NULL, 0, LABEL_KEM, suiteid, sizeof(suiteid),
+        OSSL_DHKEM_LABEL_EAE_PRK, dhkm, dhkmlen);
+    double e = now_ms();
+    printf("openssl,encap,eae_prk_extract,%.5f\n", e - s);
+    s = now_ms();
+    ret &= ossl_hpke_labeled_expand(kctx, okm, okmlen, prk, prklen,
+        LABEL_KEM, suiteid, sizeof(suiteid),
+        OSSL_DHKEM_LABEL_SHARED_SECRET,
+        kemctx, kemctxlen);
+    e = now_ms();
+    printf("openssl,encap,shared_secret_expand,%.5f\n", e - s);
     OPENSSL_cleanse(prk, prklen);
     return ret;
 }
@@ -477,9 +490,12 @@ static int derive_secret(PROV_ECX_CTX *ctx, unsigned char *secret,
     int auth = ctx->sender_authkey != NULL;
     size_t encodedkeylen = info->Npk;
 
+    double s = now_ms();
     if (!generate_ecxdhkm(privkey1, peerkey1, dhkm, sizeof(dhkm),
             (unsigned int)encodedkeylen))
         goto err;
+    double e = now_ms();
+    printf("openssl,encap,dh_compute,%.5f\n", e - s);
     dhkmlen = encodedkeylen;
 
     /* Concat the optional second ECXDH (used for Auth) */
@@ -565,9 +581,15 @@ static int dhkem_encap(PROV_ECX_CTX *ctx,
     }
 
     /* Create an ephemeral key */
+    double s = now_ms();
     sender_ephemkey = derivekey(ctx, ctx->ikm, ctx->ikmlen);
+    double e = now_ms();
+    printf("openssl,encap,pkE_generation,%.5f\n", e - s);
 
+    s = now_ms();
     sender_ephempub = ecx_pubkey(sender_ephemkey);
+    e = now_ms();
+    printf("openssl,encap,pubkey_export,%.5f\n", e - s);
     recipient_pub = ecx_pubkey(ctx->recipient_key);
     if (sender_ephempub == NULL || recipient_pub == NULL)
         goto err;
@@ -655,8 +677,14 @@ static int ecxkem_encapsulate(void *vctx, unsigned char *out, size_t *outlen,
     PROV_ECX_CTX *ctx = (PROV_ECX_CTX *)vctx;
 
     switch (ctx->mode) {
-    case KEM_MODE_DHKEM:
-        return dhkem_encap(ctx, out, outlen, secret, secretlen);
+    case KEM_MODE_DHKEM: {
+        double s = now_ms();
+        int r = dhkem_encap(ctx, out, outlen, secret, secretlen);
+        double e = now_ms();
+        if (out != NULL)
+            printf("openssl,encap,,%.5f\n", e - s);
+        return r;
+    }
     default:
         ERR_raise(ERR_LIB_PROV, PROV_R_INVALID_MODE);
         return -2;
