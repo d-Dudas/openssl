@@ -1199,11 +1199,15 @@ int OSSL_HPKE_seal(OSSL_HPKE_CTX *ctx,
         ERR_raise(ERR_LIB_CRYPTO, ERR_R_PASSED_INVALID_ARGUMENT);
         return 0;
     }
+    double s = now_ms();
     seqlen = hpke_seqnonce2buf(ctx, seqbuf, sizeof(seqbuf));
+    double e = now_ms();
+    printf("openssl,seal,seqnonce,%.5f\n", e - s);
     if (seqlen == 0) {
         ERR_raise(ERR_LIB_CRYPTO, ERR_R_INTERNAL_ERROR);
         return 0;
     }
+    s = now_ms();
     if (hpke_aead_enc(ctx, seqbuf, aad, aadlen, pt, ptlen, ct, ctlen) != 1) {
         ERR_raise(ERR_LIB_CRYPTO, ERR_R_INTERNAL_ERROR);
         OPENSSL_cleanse(seqbuf, sizeof(seqbuf));
@@ -1211,7 +1215,13 @@ int OSSL_HPKE_seal(OSSL_HPKE_CTX *ctx,
     } else {
         ctx->seq++;
     }
+    e = now_ms();
+    printf("openssl,seal,encrypt,%.5f\n", e - s);
+
+    s = now_ms();
     OPENSSL_cleanse(seqbuf, sizeof(seqbuf));
+    e = now_ms();
+    printf("openssl,seal,seqbuf_zeroize,%.5f\n", e - s);
     return 1;
 }
 
